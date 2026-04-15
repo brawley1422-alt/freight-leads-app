@@ -35,13 +35,22 @@ export function emailPdf(
   subject: string,
   to?: string
 ): { ok: boolean; log: string } {
+  // email-doc always delivers to the address baked into its config (JB's
+  // inbox). The `to` parameter is accepted but only used to decide whether
+  // we have a delivery path at all — if the recipient isn't the admin inbox
+  // there's nothing we can do yet.
   const emailDoc = path.join(process.env.HOME ?? "", "bin", "email-doc");
   if (!fs.existsSync(emailDoc)) {
     return { ok: false, log: "~/bin/email-doc not found" };
   }
-  const args = [pdfFile, "--subject", subject];
-  if (to) args.push("--to", to);
-  const res = spawnSync(emailDoc, args, { encoding: "utf8" });
+  const adminEmail = (process.env.ADMIN_EMAIL ?? "brawley1422@gmail.com").toLowerCase();
+  if (to && to.toLowerCase() !== adminEmail) {
+    return {
+      ok: false,
+      log: `email-doc can only deliver to ${adminEmail}; skipped for ${to}`,
+    };
+  }
+  const res = spawnSync(emailDoc, [pdfFile, "--subject", subject], { encoding: "utf8" });
   const log = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   return { ok: res.status === 0, log };
 }

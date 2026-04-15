@@ -13,10 +13,15 @@ async function requestLink(formData: FormData) {
   if (!agent && !isAdminEmail(email)) {
     redirect("/login?sent=1"); // never leak which emails are known
   }
-  const token = createMagicToken(email);
-  const base = process.env.APP_URL ?? "http://localhost:3021";
-  const link = `${base}/api/auth/verify?token=${token}`;
-  await sendMagicLink(email, link);
+  try {
+    const token = createMagicToken(email);
+    const base = process.env.APP_URL ?? "http://localhost:3021";
+    const link = `${base}/api/auth/verify?token=${token}`;
+    await sendMagicLink(email, link);
+  } catch (err) {
+    console.error("[login] sendMagicLink threw:", err);
+    // still redirect as if nothing happened — don't leak the internal error
+  }
   redirect("/login?sent=1");
 }
 
@@ -54,6 +59,17 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           </p>
         )}
         {sp?.error && <p className="mt-6 text-blood font-sans text-sm">{sp.error}</p>}
+        {process.env.ALLOW_DEV_LOGIN === "1" && (
+          <div className="mt-10 border-t border-sand pt-6">
+            <div className="eyebrow mb-2">Dev mode</div>
+            <a
+              href="/api/auth/dev"
+              className="inline-block border-2 border-ink px-5 py-2 font-sans font-semibold uppercase tracking-wider text-xs no-underline text-ink hover:bg-ink hover:text-cream"
+            >
+              Skip email, sign in as admin →
+            </a>
+          </div>
+        )}
         <div className="rule mt-10 pt-4 text-xs font-sans uppercase tracking-wider text-dust">
           Resolve Logistics · Internal tool
         </div>
