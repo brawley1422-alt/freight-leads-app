@@ -37,5 +37,7 @@ export type Lead = {
   dm1_linkedin: string | null;
   status: "pending" | "contacted" | "bad_fit" | "won";
   notes: string | null;
+  qual_score: number | null;
+  qual_flag: string | null;
   created_at: string;
 };

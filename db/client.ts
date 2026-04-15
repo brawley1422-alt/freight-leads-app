@@ -19,7 +19,23 @@ export function db(): Database.Database {
     "utf8"
   );
   _db.exec(schema);
+  applyMigrations(_db);
   return _db;
+}
+
+// Additive migrations for columns introduced after initial schema. Each block
+// is idempotent: check pragma first, only run ALTER if the column is missing.
+function applyMigrations(d: Database.Database) {
+  const leadCols = d
+    .prepare("PRAGMA table_info(leads)")
+    .all() as { name: string }[];
+  const names = new Set(leadCols.map((c) => c.name));
+  if (!names.has("qual_score")) {
+    d.exec("ALTER TABLE leads ADD COLUMN qual_score INTEGER");
+  }
+  if (!names.has("qual_flag")) {
+    d.exec("ALTER TABLE leads ADD COLUMN qual_flag TEXT");
+  }
 }
 
 export function close() {

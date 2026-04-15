@@ -5,6 +5,7 @@ import type { Agent } from "../lib/types";
 import { buildPrompt } from "./prompt";
 import { runClaude, stripPreamble } from "./claude";
 import { parseReport } from "./parse";
+import { qualifyLeads } from "./qualify";
 import { paths, writeReport, renderPdf, emailPdf } from "./deliver";
 
 type Flags = { agent?: string; noEmail: boolean; dryRun: boolean; date?: string };
@@ -46,8 +47,12 @@ async function runForAgent(agent: Agent, flags: Flags) {
     return;
   }
 
-  const { vertical, prompt } = buildPrompt(agent, new Date(date));
+  const { vertical, prompt, hintStats } = await buildPrompt(agent, new Date(date));
   log(`  vertical: ${vertical}`, p.log);
+  log(
+    `  searxng hints: ${hintStats.totalResults} raw results across ${hintStats.queryCount} queries`,
+    p.log
+  );
   log(`  prompt chars: ${prompt.length}`, p.log);
 
   if (flags.dryRun) {
@@ -74,8 +79,16 @@ async function runForAgent(agent: Agent, flags: Flags) {
     writeReport(p.md, md);
     log(`  report: ${p.md} (${md.length} chars)`, p.log);
 
-    const leads = parseReport(md);
-    log(`  parsed ${leads.length} leads`, p.log);
+    const rawLeads = parseReport(md);
+    log(`  parsed ${rawLeads.length} leads`, p.log);
+
+    log(`  qualifying via ollama...`, p.log);
+    const leads = await qualifyLeads(agent.icp_text, rawLeads);
+    const scored = leads.filter((l) => l.qual_score !== null).length;
+    const weak = leads.filter(
+      (l) => typeof l.qual_score === "number" && l.qual_score < 40
+    ).length;
+    log(`  qualified: ${scored}/${leads.length} scored · ${weak} flagged weak`, p.log);
 
     const tx = db().transaction(() => {
       db()
@@ -83,8 +96,8 @@ async function runForAgent(agent: Agent, flags: Flags) {
         .run(md, runId);
       const insLead = db().prepare(`
         INSERT INTO leads
-          (run_id, rank, company, company_lower, website, hq, est_revenue, in_band, details_md, dm1_name, dm1_linkedin)
-        VALUES (@run_id, @rank, @company, @company_lower, @website, @hq, @est_revenue, @in_band, @details_md, @dm1_name, @dm1_linkedin)
+          (run_id, rank, company, company_lower, website, hq, est_revenue, in_band, details_md, dm1_name, dm1_linkedin, qual_score, qual_flag)
+        VALUES (@run_id, @rank, @company, @company_lower, @website, @hq, @est_revenue, @in_band, @details_md, @dm1_name, @dm1_linkedin, @qual_score, @qual_flag)
       `);
       const insSeen = db().prepare(
         "INSERT OR IGNORE INTO seen (agent_id, company_lower, first_seen_date) VALUES (?, ?, ?)"
@@ -108,6 +121,8 @@ async function runForAgent(agent: Agent, flags: Flags) {
           details_md: l.details_md,
           dm1_name: l.dm1_name,
           dm1_linkedin: l.dm1_linkedin,
+          qual_score: l.qual_score,
+          qual_flag: l.qual_flag,
         });
         insSeen.run(agent.id, lower, date);
         upsertClaim.run(lower, agent.id);

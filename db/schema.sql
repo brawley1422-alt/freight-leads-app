@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS leads (
   dm1_linkedin   TEXT,
   status         TEXT NOT NULL DEFAULT 'pending',  -- pending|contacted|bad_fit|won
   notes          TEXT,
+  qual_score     INTEGER,                          -- 0-100 from Ollama qualify pass; NULL if skipped
+  qual_flag      TEXT,                             -- short phrase from Ollama
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS leads_run_idx ON leads(run_id);

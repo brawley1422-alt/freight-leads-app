@@ -3,6 +3,7 @@ import path from "node:path";
 import { db } from "../db/client";
 import type { Agent } from "../lib/types";
 import { pickTodayVertical } from "../lib/agents";
+import { buildHints } from "../lib/searxng";
 
 const TEMPLATE_PATH = path.join(process.cwd(), "templates", "prompt_template.md");
 const CLAIM_WINDOW_DAYS = 30;
@@ -12,9 +13,14 @@ const MIN_FEEDBACK_SIGNAL = 3;
 export type PromptContext = {
   vertical: string;
   prompt: string;
+  hintStats: { queryCount: number; totalResults: number };
 };
 
-export function buildPrompt(agent: Agent, date: Date = new Date()): PromptContext {
+export async function buildPrompt(
+  agent: Agent,
+  date: Date = new Date(),
+  opts: { skipHints?: boolean } = {}
+): Promise<PromptContext> {
   const vertical = pickTodayVertical(agent, date);
   const template = fs.readFileSync(TEMPLATE_PATH, "utf8");
 
@@ -65,13 +71,22 @@ export function buildPrompt(agent: Agent, date: Date = new Date()): PromptContex
       ? bad.map((r) => `- ${r.company}`).join("\n")
       : "(not enough signal yet — ignore this section)";
 
+  const hints = opts.skipHints
+    ? { block: "(pre-research skipped)", queryCount: 0, totalResults: 0 }
+    : await buildHints(vertical);
+
   const prompt = template
     .replaceAll("{{ICP}}", agent.icp_text)
     .replaceAll("{{VERTICAL}}", vertical)
     .replaceAll("{{SEEN_LIST}}", seenBlock)
     .replaceAll("{{CLAIMED_LIST}}", claimBlock)
     .replaceAll("{{HIGH_SIGNAL}}", highBlock)
-    .replaceAll("{{BAD_SIGNAL}}", badBlock);
+    .replaceAll("{{BAD_SIGNAL}}", badBlock)
+    .replaceAll("{{SEARXNG_HINTS}}", hints.block);
 
-  return { vertical, prompt };
+  return {
+    vertical,
+    prompt,
+    hintStats: { queryCount: hints.queryCount, totalResults: hints.totalResults },
+  };
 }

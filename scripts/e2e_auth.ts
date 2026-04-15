@@ -96,7 +96,7 @@ mark.run("bad_fit", leadRows[6].id);
 console.log("marked statuses: 3 contacted, 1 won, 3 bad_fit");
 
 // 5. Build prompt again and verify signal blocks populated
-const built = buildPrompt(agent, new Date(testDate));
+const built = await buildPrompt(agent, new Date(testDate), { skipHints: true });
 const hasHigh = /RECENTLY CONVERTED \/ CONTACTED[\s\S]*?- /.test(built.prompt);
 const hasBad = /RECENTLY MARKED BAD FIT[\s\S]*?- /.test(built.prompt);
 console.log(`prompt contains HIGH_SIGNAL bullets: ${hasHigh}`);
@@ -113,7 +113,7 @@ db()
   )
   .run("brian", "Brian (TEST)", "brian@example.com", "Pet products ICP", JSON.stringify(["Pet products"]), 7);
 const brian = getAgentByEmail("brian@example.com")!;
-const brianPrompt = buildPrompt(brian, new Date(testDate));
+const brianPrompt = await buildPrompt(brian, new Date(testDate), { skipHints: true });
 const leakage = leads.some((l) => {
   // brian should NOT see companies that JB already claimed
   const seenBlock = brianPrompt.prompt.match(/ALREADY DELIVERED TO THIS AGENT[\s\S]*?##/);
