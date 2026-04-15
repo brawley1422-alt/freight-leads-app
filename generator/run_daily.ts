@@ -202,6 +202,25 @@ async function runForAgent(agent: Agent, flags: Flags) {
 
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
+
+  // Cron-safety guard: when PM2 kicks this off on start (which it always does
+  // before the cron schedule takes over), the env var PM2_CRON_SCHEDULE will
+  // be set. In that case we only actually run if we're inside the window —
+  // otherwise we exit cleanly without burning a claude -p call.
+  const cronWindow = process.env.PM2_CRON_SCHEDULE;
+  if (cronWindow && !flags.agent && !flags.dryRun) {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const insideWindow = h === 0 && m >= 25 && m <= 59;
+    if (!insideWindow) {
+      console.log(
+        `[${now.toISOString()}] outside cron window (${h}:${m.toString().padStart(2, "0")}); exiting without running`
+      );
+      process.exit(0);
+    }
+  }
+
   db();
 
   const agents = flags.agent

@@ -35,6 +35,11 @@ module.exports = {
       cron_restart: "30 0 * * *", // 00:30 every day — long enough before 7am delivery to finish 15 briefs
       env: {
         NODE_ENV: "production",
+        // PM2 always fires the process once on pm2 start before the cron
+        // takes over. This sentinel tells run_daily to bail unless it's
+        // really inside the 00:25-01:00 window, so nothing burns claude -p
+        // just because you restarted PM2 mid-afternoon.
+        PM2_CRON_SCHEDULE: "30 0 * * *",
         LEAD_FACTORY_DB: path.join(__dirname, "data", "leads.db"),
       },
     },
