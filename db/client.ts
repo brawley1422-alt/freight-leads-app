@@ -36,6 +36,12 @@ function applyMigrations(d: Database.Database) {
   if (!names.has("qual_flag")) {
     d.exec("ALTER TABLE leads ADD COLUMN qual_flag TEXT");
   }
+  if (!names.has("dup_score")) {
+    d.exec("ALTER TABLE leads ADD COLUMN dup_score REAL");
+  }
+  if (!names.has("dup_of")) {
+    d.exec("ALTER TABLE leads ADD COLUMN dup_of TEXT");
+  }
 }
 
 export function close() {

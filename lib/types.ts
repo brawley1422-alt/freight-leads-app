@@ -39,5 +39,7 @@ export type Lead = {
   notes: string | null;
   qual_score: number | null;
   qual_flag: string | null;
+  dup_score: number | null;
+  dup_of: string | null;
   created_at: string;
 };

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS leads (
   notes          TEXT,
   qual_score     INTEGER,                          -- 0-100 from Ollama qualify pass; NULL if skipped
   qual_flag      TEXT,                             -- short phrase from Ollama
+  dup_score      REAL,                             -- 0..1 cosine similarity to closest neighbor in Qdrant
+  dup_of         TEXT,                             -- "own:<company>" | "<slug>:<company>" of the matched neighbor
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS leads_run_idx ON leads(run_id);

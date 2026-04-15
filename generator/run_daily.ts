@@ -6,6 +6,8 @@ import { buildPrompt } from "./prompt";
 import { runClaude, stripPreamble } from "./claude";
 import { parseReport } from "./parse";
 import { qualifyLeads } from "./qualify";
+import { dedupLeads } from "./dedup";
+import { upsertLead } from "../lib/qdrant";
 import { paths, writeReport, renderPdf, emailPdf } from "./deliver";
 
 type Flags = { agent?: string; noEmail: boolean; dryRun: boolean; date?: string };
@@ -83,12 +85,32 @@ async function runForAgent(agent: Agent, flags: Flags) {
     log(`  parsed ${rawLeads.length} leads`, p.log);
 
     log(`  qualifying via ollama...`, p.log);
-    const leads = await qualifyLeads(agent.icp_text, rawLeads);
-    const scored = leads.filter((l) => l.qual_score !== null).length;
-    const weak = leads.filter(
+    const qualified = await qualifyLeads(agent.icp_text, rawLeads);
+    const scored = qualified.filter((l) => l.qual_score !== null).length;
+    const weak = qualified.filter(
       (l) => typeof l.qual_score === "number" && l.qual_score < 40
     ).length;
-    log(`  qualified: ${scored}/${leads.length} scored · ${weak} flagged weak`, p.log);
+    log(`  qualified: ${scored}/${qualified.length} scored · ${weak} flagged weak`, p.log);
+
+    log(`  semantic dedup via qdrant...`, p.log);
+    const { leads, available: qdrantOn } = await dedupLeads(
+      agent.id,
+      agent.slug,
+      qualified,
+      date
+    );
+    const dupFlagged = leads.filter((l) => l.dup_score !== null).length;
+    log(
+      `  dedup: qdrant=${qdrantOn ? "on" : "off"} · ${dupFlagged} semantic duplicates flagged`,
+      p.log
+    );
+
+    const insertedLeadIds: {
+      id: number;
+      vector: number[] | null;
+      company: string;
+      lower: string;
+    }[] = [];
 
     const tx = db().transaction(() => {
       db()
@@ -96,8 +118,8 @@ async function runForAgent(agent: Agent, flags: Flags) {
         .run(md, runId);
       const insLead = db().prepare(`
         INSERT INTO leads
-          (run_id, rank, company, company_lower, website, hq, est_revenue, in_band, details_md, dm1_name, dm1_linkedin, qual_score, qual_flag)
-        VALUES (@run_id, @rank, @company, @company_lower, @website, @hq, @est_revenue, @in_band, @details_md, @dm1_name, @dm1_linkedin, @qual_score, @qual_flag)
+          (run_id, rank, company, company_lower, website, hq, est_revenue, in_band, details_md, dm1_name, dm1_linkedin, qual_score, qual_flag, dup_score, dup_of)
+        VALUES (@run_id, @rank, @company, @company_lower, @website, @hq, @est_revenue, @in_band, @details_md, @dm1_name, @dm1_linkedin, @qual_score, @qual_flag, @dup_score, @dup_of)
       `);
       const insSeen = db().prepare(
         "INSERT OR IGNORE INTO seen (agent_id, company_lower, first_seen_date) VALUES (?, ?, ?)"
@@ -109,7 +131,7 @@ async function runForAgent(agent: Agent, flags: Flags) {
       `);
       for (const l of leads) {
         const lower = l.company.toLowerCase();
-        insLead.run({
+        const res = insLead.run({
           run_id: runId,
           rank: l.rank,
           company: l.company,
@@ -123,12 +145,35 @@ async function runForAgent(agent: Agent, flags: Flags) {
           dm1_linkedin: l.dm1_linkedin,
           qual_score: l.qual_score,
           qual_flag: l.qual_flag,
+          dup_score: l.dup_score,
+          dup_of: l.dup_of,
         });
+        insertedLeadIds.push({ id: Number(res.lastInsertRowid), vector: l.vector, company: l.company, lower });
         insSeen.run(agent.id, lower, date);
         upsertClaim.run(lower, agent.id);
       }
     });
+
     tx();
+
+    // Index each new lead in Qdrant now that we have its row id. Failures are
+    // non-fatal — dedup degrades to "off" on the next run but the DB is still
+    // correct.
+    if (qdrantOn) {
+      for (const row of insertedLeadIds) {
+        if (!row.vector) continue;
+        await upsertLead(row.vector, {
+          lead_id: row.id,
+          agent_id: agent.id,
+          agent_slug: agent.slug,
+          company: row.company,
+          company_lower: row.lower,
+          date,
+          run_id: runId,
+        });
+      }
+      log(`  qdrant: upserted ${insertedLeadIds.filter((r) => r.vector).length} vectors`, p.log);
+    }
 
     const pdf = renderPdf(p.md, p.pdf);
     log(`  pdf: ${pdf.ok ? "ok" : "FAIL"}`, p.log);

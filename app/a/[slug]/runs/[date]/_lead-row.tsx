@@ -25,6 +25,25 @@ function QualBadge({ lead }: { lead: Lead }) {
   );
 }
 
+function DupBadge({ lead }: { lead: Lead }) {
+  const s = lead.dup_score ?? 0;
+  const tone =
+    s >= 0.9
+      ? "bg-ink text-cream border-ink"
+      : s >= 0.85
+      ? "border-ink text-ink"
+      : "border-dust text-dust";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 border px-2 py-0.5 normal-case tracking-normal ${tone}`}
+      title={`Semantic match: ${lead.dup_of ?? "unknown"}`}
+    >
+      <span className="font-mono font-bold">dup {Math.round(s * 100)}</span>
+      {lead.dup_of && <span className="text-[10px]">{lead.dup_of}</span>}
+    </span>
+  );
+}
+
 const OPTS: { key: Status; label: string; className: string }[] = [
   { key: "pending", label: "Pending", className: "border-dust text-dust" },
   { key: "contacted", label: "Contacted", className: "border-rust text-rust" },
@@ -63,6 +82,7 @@ export function LeadRow({ lead }: { lead: Lead }) {
               </>
             )}
             {typeof lead.qual_score === "number" && <QualBadge lead={lead} />}
+            {typeof lead.dup_score === "number" && <DupBadge lead={lead} />}
           </div>
           <h3 className="display text-2xl font-bold mt-0.5">{lead.company}</h3>
           <div className="mt-1 font-sans text-sm">
