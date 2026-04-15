@@ -1,0 +1,31 @@
+{
+  "name": "freight-leads-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3021",
+    "build": "next build",
+    "start": "next start -p 3021",
+    "db:init": "tsx scripts/db_init.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "generate": "tsx generator/run_daily.ts",
+    "digest:weekly": "tsx generator/weekly_digest.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
