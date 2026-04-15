@@ -10,16 +10,25 @@ import { dedupLeads } from "./dedup";
 import { upsertLead } from "../lib/qdrant";
 import { paths, writeReport, renderPdf, emailPdf } from "./deliver";
 
-type Flags = { agent?: string; noEmail: boolean; dryRun: boolean; date?: string };
+type Flags = {
+  agent?: string;
+  noEmail: boolean;
+  dryRun: boolean;
+  date?: string;
+  runId?: number;   // reuse an existing runs row instead of creating one
+  force: boolean;   // delete+replace any existing run for (agent, date)
+};
 
 function parseArgs(argv: string[]): Flags {
-  const out: Flags = { noEmail: false, dryRun: false };
+  const out: Flags = { noEmail: false, dryRun: false, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--agent") out.agent = argv[++i];
     else if (a === "--no-email") out.noEmail = true;
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--date") out.date = argv[++i];
+    else if (a === "--run-id") out.runId = Number(argv[++i]);
+    else if (a === "--force") out.force = true;
   }
   return out;
 }
@@ -41,12 +50,23 @@ async function runForAgent(agent: Agent, flags: Flags) {
 
   log(`agent=${agent.slug} date=${date} starting`, p.log);
 
-  const existing = db()
-    .prepare("SELECT id FROM runs WHERE agent_id = ? AND date = ?")
-    .get(agent.id, date) as { id: number } | undefined;
-  if (existing && !flags.dryRun) {
-    log(`  already has run #${existing.id} for today — skipping`, p.log);
-    return;
+  // Three ways this function starts:
+  //   1. Fresh nightly run        → insert a new row here
+  //   2. Manual re-run / --force  → delete existing, insert new row
+  //   3. On-demand API call       → caller already inserted the row and
+  //                                 passes --run-id so we just pick it up
+  if (!flags.runId) {
+    const existing = db()
+      .prepare("SELECT id, status FROM runs WHERE agent_id = ? AND date = ?")
+      .get(agent.id, date) as { id: number; status: string } | undefined;
+    if (existing && !flags.dryRun && !flags.force) {
+      log(`  already has run #${existing.id} for today — skipping`, p.log);
+      return;
+    }
+    if (existing && flags.force) {
+      log(`  --force: deleting existing run #${existing.id}`, p.log);
+      db().prepare("DELETE FROM runs WHERE id = ?").run(existing.id);
+    }
   }
 
   const { vertical, prompt, hintStats } = await buildPrompt(agent, new Date(date));
@@ -63,13 +83,21 @@ async function runForAgent(agent: Agent, flags: Flags) {
     return;
   }
 
-  const runId = Number(
+  let runId: number;
+  if (flags.runId) {
     db()
-      .prepare(
-        "INSERT INTO runs (agent_id, date, vertical, status) VALUES (?, ?, ?, 'running')"
-      )
-      .run(agent.id, date, vertical).lastInsertRowid
-  );
+      .prepare("UPDATE runs SET vertical = ?, status = 'running' WHERE id = ?")
+      .run(vertical, flags.runId);
+    runId = flags.runId;
+  } else {
+    runId = Number(
+      db()
+        .prepare(
+          "INSERT INTO runs (agent_id, date, vertical, status) VALUES (?, ?, ?, 'running')"
+        )
+        .run(agent.id, date, vertical).lastInsertRowid
+    );
+  }
 
   try {
     log(`  launching claude -p...`, p.log);

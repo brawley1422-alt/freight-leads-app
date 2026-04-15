@@ -42,6 +42,18 @@ function applyMigrations(d: Database.Database) {
   if (!names.has("dup_of")) {
     d.exec("ALTER TABLE leads ADD COLUMN dup_of TEXT");
   }
+
+  // Reclaim any runs that are stuck in pending/running and older than 2h.
+  // This handles the crash-during-run case: if the subprocess was killed
+  // (PM2 restart, OOM, sudden reboot) the row would otherwise block future
+  // on-demand runs forever because of the "already running" guard.
+  d.prepare(
+    `UPDATE runs
+       SET status = 'error',
+           error = COALESCE(error, 'subprocess died before completion')
+     WHERE status IN ('pending','running')
+       AND datetime(created_at) < datetime('now', '-2 hours')`
+  ).run();
 }
 
 export function close() {
